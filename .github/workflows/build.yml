@@ -3,6 +3,10 @@ name: Build Android APK
 on:
   workflow_dispatch:
 
+# Критически важно: даем боту GitHub Actions права на создание релизов
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -27,18 +31,23 @@ jobs:
       - name: Prebuild Android
         run: npx expo prebuild --platform android
 
-      - name: Build APK (Optimized for ARM64)
+      - name: Build APK (ARMv7 & ARM64)
         working-directory: android
         env:
-          # Указываем сборщику делать APK только под 64-битные ARM-процессоры (как на твоем Honor)
-          ORG_GRADLE_PROJECT_reactNativeArchitectures: arm64-v8a
-          # Выделяем Java 4 ГБ памяти, чтобы компилятор не упал с ошибкой OOM
+          # Включаем обе архитектуры: старую 32-битную и новую 64-битную
+          ORG_GRADLE_PROJECT_reactNativeArchitectures: armeabi-v7a,arm64-v8a
           _JAVA_OPTIONS: -Xmx4g
-        # Флаг --no-daemon убивает фоновые процессы, экономя память на слабом сервере GitHub
         run: ./gradlew assembleRelease --no-daemon
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Rename APK
+        # Переименовываем стандартный app-release.apk, чтобы в релизах он выглядел красиво
+        run: mv android/app/build/outputs/apk/release/app-release.apk Twuelz-build-${{ github.run_number }}.apk
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
         with:
-          name: Twuelz-APK
-          path: android/app/build/outputs/apk/release/app-release.apk
+          # Автоматически генерируем уникальные теги на основе номера запуска
+          tag_name: "build-${{ github.run_number }}"
+          name: "Twuelz Auto-Build #${{ github.run_number }}"
+          files: Twuelz-build-${{ github.run_number }}.apk
+          body: "Автоматическая ночная сборка Twuelz.\n\nПоддерживаемые архитектуры: `armeabi-v7a`, `arm64-v8a`."
