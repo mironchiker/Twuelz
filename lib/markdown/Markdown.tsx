@@ -1,6 +1,9 @@
 import { setStringAsync } from 'expo-clipboard'
+import * as FileSystem from 'expo-file-system'
+import * as Sharing from 'expo-sharing'
 import { Image } from 'expo-image'
 import { t } from 'i18next'
+import JSZip from 'jszip'
 import { RaTeXView } from 'ratex-react-native'
 import React, { ReactNode, useCallback, useMemo, useState } from 'react'
 import { Platform, StyleSheet, Text, useWindowDimensions, View, useColorScheme } from 'react-native'
@@ -69,6 +72,108 @@ const CodeHighlighter = ({ code }: { code: string }) => {
 
     return <Text>{elements}</Text>;
 }
+// --- КОНЕЦ ДОБАВЛЕНИЯ ---
+
+// --- ДОБАВЛЕНО: Интеллектуальный блок кода с поддержкой ZIP-архивации ---
+const EnhancedCodeFence = ({ node, content, sourceInfo, styles, inheritedStyles }: any) => {
+    const language = sourceInfo ? sourceInfo.trim() : 'text';
+
+    const handleDownloadZip = async () => {
+        try {
+            Logger.infoToast('Упаковка архива...');
+            const zip = new JSZip();
+
+            let ext = 'txt';
+            if (language === 'python') ext = 'py';
+            else if (language === 'javascript' || language === 'js') ext = 'js';
+            else if (language === 'java') ext = 'java';
+            else if (language === 'html') ext = 'html';
+            else if (language === 'dart') ext = 'dart';
+            else if (language === 'json') ext = 'json';
+            else if (language === 'cpp' || language === 'c++') ext = 'cpp';
+            else if (language === 'sh' || language === 'bash') ext = 'sh';
+            else if (language === 'ts' || language === 'typescript') ext = 'ts';
+
+            const fileName = `source_${language}.${ext}`;
+            zip.file(fileName, content);
+
+            const base64Data = await zip.generateAsync({ type: 'base64' });
+            const fileUri = FileSystem.cacheDirectory + `${language}_code.zip`;
+
+            await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+                encoding: FileSystem.EncodingType.Base64,
+            });
+
+            await Sharing.shareAsync(fileUri, {
+                mimeType: 'application/zip',
+                dialogTitle: 'Сохранить исходный код',
+            });
+        } catch (error) {
+            Logger.errorToast('Ошибка сохранения');
+        }
+    };
+
+    return (
+        <View key={node.key} style={{ marginBottom: styles.fence.marginBottom }}>
+            {/* Заголовок блока с кнопкой копирования */}
+            <View style={[styles.fenceHeader, { borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }]}>
+                <Text style={{ color: styles.fenceHeader.color, fontWeight: 'bold' }}>
+                    {sourceInfo || 'Code'}
+                </Text>
+                {content && (
+                    <ThemedButton
+                        iconName="copy"
+                        variant="tertiary"
+                        iconStyle={{ color: styles.fenceHeader.color }}
+                        onPress={() => {
+                            setStringAsync(content)
+                                .then(() => {
+                                    Logger.infoToast(t('chat.quickActions.toast.copiedCode'))
+                                })
+                                .catch(() => {
+                                    Logger.errorToast(t('chat.quickActions.toast.copyFailed'))
+                                })
+                        }}
+                    />
+                )}
+            </View>
+            
+            {/* Блок с раскрашенным кодом */}
+            <Text style={[inheritedStyles, styles.fence, { marginBottom: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottomWidth: 0 }]}>
+                <CodeHighlighter code={content} />
+            </Text>
+
+            {/* Подвал-карточка для скачивания архива */}
+            <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: styles.fenceHeader.backgroundColor,
+                borderWidth: styles.fence.borderWidth,
+                borderColor: styles.fence.borderColor,
+                borderTopWidth: 0,
+                borderBottomLeftRadius: styles.fence.borderBottomLeftRadius,
+                borderBottomRightRadius: styles.fence.borderBottomRightRadius,
+                paddingHorizontal: 16,
+                paddingVertical: 10,
+            }}>
+                <View style={{ flex: 1 }}>
+                    <Text style={{ color: styles.fenceHeader.color, fontWeight: 'bold', fontSize: 14 }}>
+                        {`${language}_code.zip`}
+                    </Text>
+                    <Text style={{ color: styles.fenceHeader.color, opacity: 0.7, fontSize: 12, marginTop: 2 }}>
+                        ZIP Archive • {(content.length / 1024).toFixed(1)} KB
+                    </Text>
+                </View>
+                <ThemedButton
+                    iconName="download"
+                    variant="tertiary"
+                    iconStyle={{ color: styles.fenceHeader.color }}
+                    onPress={handleDownloadZip}
+                />
+            </View>
+        </View>
+    );
+};
 // --- КОНЕЦ ДОБАВЛЕНИЯ ---
 
 const getDeepASTDirection = (astNode: any): 'ltr' | 'rtl' | 'neutral' => {
@@ -172,36 +277,14 @@ export namespace MarkdownStyle {
                 content = node.content.substring(0, node.content.length - 1)
             }
             return (
-                <View key={node.key}>
-                    <View style={styles.fenceHeader}>
-                        <Text style={{ color: styles.fenceHeader.color }}>
-                            {sourceInfo || 'Code'}
-                        </Text>
-                        {content && (
-                            <ThemedButton
-                                iconName="copy"
-                                variant="tertiary"
-                                iconStyle={{ color: styles.fenceHeader.color }}
-                                onPress={() => {
-                                    setStringAsync(content)
-                                        .then(() => {
-                                            Logger.infoToast(
-                                                t('chat.quickActions.toast.copiedCode')
-                                            )
-                                        })
-                                        .catch(() => {
-                                            Logger.errorToast(
-                                                t('chat.quickActions.toast.copyFailed')
-                                            )
-                                        })
-                                }}
-                            />
-                        )}
-                    </View>
-                    <Text style={[inheritedStyles, styles.fence]}>
-                        <CodeHighlighter code={content} />
-                    </Text>
-                </View>
+                <EnhancedCodeFence
+                    key={node.key}
+                    node={node}
+                    content={content}
+                    sourceInfo={sourceInfo}
+                    styles={styles}
+                    inheritedStyles={inheritedStyles}
+                />
             )
         },
         double_quote: (node: any, children: any, parent: any, styles: any) => {
