@@ -1,7 +1,7 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch: # Позволяет запускать сборку кнопкой
+  workflow_dispatch:
 
 jobs:
   build:
@@ -27,9 +27,15 @@ jobs:
       - name: Prebuild Android
         run: npx expo prebuild --platform android
 
-      - name: Build APK
+      - name: Build APK (Optimized for ARM64)
         working-directory: android
-        run: ./gradlew assembleRelease
+        env:
+          # Указываем сборщику делать APK только под 64-битные ARM-процессоры (как на твоем Honor)
+          ORG_GRADLE_PROJECT_reactNativeArchitectures: arm64-v8a
+          # Выделяем Java 4 ГБ памяти, чтобы компилятор не упал с ошибкой OOM
+          _JAVA_OPTIONS: -Xmx4g
+        # Флаг --no-daemon убивает фоновые процессы, экономя память на слабом сервере GitHub
+        run: ./gradlew assembleRelease --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
