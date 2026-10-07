@@ -3,7 +3,7 @@ import { Image } from 'expo-image'
 import { t } from 'i18next'
 import { RaTeXView } from 'ratex-react-native'
 import React, { ReactNode, useCallback, useMemo, useState } from 'react'
-import { Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { Platform, StyleSheet, Text, useWindowDimensions, View, useColorScheme } from 'react-native'
 import { MarkdownIt } from 'react-native-markdown-display'
 
 import ThemedButton from '@components/buttons/ThemedButton'
@@ -16,10 +16,64 @@ import latexPlugin from './MarkdownLatexPlugin'
 import doubleQuotePlugin from './MarkdownQuotePlugin'
 import thinkPlugin from './MarkdownThinkPlugin'
 
+// --- ДОБАВЛЕНО: Встроенный хайлайтер кода, не требующий установки дополнительных библиотек ---
+const CodeHighlighter = ({ code }: { code: string }) => {
+    const isDark = useColorScheme() === 'dark';
+    
+    // Цветовая палитра в стиле Atom One (Dark/Light)
+    const colors = isDark ? {
+        keyword: '#c678dd', // Фиолетовый
+        string: '#98c379',  // Зеленый
+        number: '#d19a66',  // Оранжевый
+        comment: '#5c6370', // Серый
+        func: '#61afef',    // Голубой
+        text: '#abb2bf',    // Обычный текст
+    } : {
+        keyword: '#a626a4',
+        string: '#50a14f',
+        number: '#986801',
+        comment: '#a0a1a7',
+        func: '#4078f2',
+        text: '#383a42',
+    };
+
+    // Универсальное регулярное выражение для парсинга базового синтаксиса
+    const regex = /(["'](?:\\.|[^\\])*?["'])|(\b(?:def|class|import|from|return|if|else|elif|for|while|in|const|let|var|function|async|await|print|echo|new|try|catch|True|False|true|false|null|None)\b)|(\b\d+(?:\.\d+)?\b)|(#.*|\/\/.*)|(\b[a-zA-Z_]\w*(?=\s*\())/g;
+
+    let lastIndex = 0;
+    const elements: ReactNode[] = [];
+    let match;
+
+    while ((match = regex.exec(code)) !== null) {
+        // Обычный текст до найденного элемента
+        if (match.index > lastIndex) {
+            elements.push(<Text key={`text-${lastIndex}`} style={{ color: colors.text }}>{code.substring(lastIndex, match.index)}</Text>);
+        }
+
+        // Определение цвета в зависимости от найденной группы
+        let color = colors.text;
+        if (match[1]) color = colors.string;
+        else if (match[2]) color = colors.keyword;
+        else if (match[3]) color = colors.number;
+        else if (match[4]) color = colors.comment;
+        else if (match[5]) color = colors.func;
+
+        elements.push(<Text key={`match-${match.index}`} style={{ color }}>{match[0]}</Text>);
+        lastIndex = regex.lastIndex;
+    }
+
+    // Добавляем оставшийся текст после последнего совпадения
+    if (lastIndex < code.length) {
+        elements.push(<Text key={`text-${lastIndex}`} style={{ color: colors.text }}>{code.substring(lastIndex)}</Text>);
+    }
+
+    return <Text>{elements}</Text>;
+}
+// --- КОНЕЦ ДОБАВЛЕНИЯ ---
+
 const getDeepASTDirection = (astNode: any): 'ltr' | 'rtl' | 'neutral' => {
     if (!astNode) return 'neutral'
 
-    // Explicitly flag softbreaks or hardbreaks as neutral
     if (
         astNode.type === 'softbreak' ||
         astNode.type === 'hardbreak' ||
@@ -29,9 +83,7 @@ const getDeepASTDirection = (astNode: any): 'ltr' | 'rtl' | 'neutral' => {
     }
 
     if (astNode.type === 'text' && typeof astNode.content === 'string') {
-        // If it's pure whitespace/newlines, it's neutral
         if (!astNode.content.trim()) return 'neutral'
-
         const rtlRegex = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/
         return rtlRegex.test(astNode.content) ? 'rtl' : 'ltr'
     }
@@ -39,7 +91,7 @@ const getDeepASTDirection = (astNode: any): 'ltr' | 'rtl' | 'neutral' => {
     if (Array.isArray(astNode.children)) {
         for (const childNode of astNode.children) {
             const dir = getDeepASTDirection(childNode)
-            if (dir !== 'neutral') return dir // Return the first concrete direction found
+            if (dir !== 'neutral') return dir
         }
     }
 
@@ -65,7 +117,6 @@ const ImageAdapter = ({
     const { src, alt } = node.attributes
 
     const { width } = useWindowDimensions()
-    // we check that the source starts with at least one of the elements in allowedImageHandlers
     const show =
         allowedImageHandlers.filter((value: string) => {
             return src.toLowerCase().startsWith(value.toLowerCase())
@@ -147,7 +198,9 @@ export namespace MarkdownStyle {
                             />
                         )}
                     </View>
-                    <Text style={[inheritedStyles, styles.fence]}>{content}</Text>
+                    <Text style={[inheritedStyles, styles.fence]}>
+                        <CodeHighlighter code={content} />
+                    </Text>
                 </View>
             )
         },
@@ -218,7 +271,6 @@ export namespace MarkdownStyle {
             let currentRunAst: any[] = []
             let currentRunRendered: any[] = []
 
-            // Start with a fallback default, but it will update on the first non-neutral node
             let currentDir: 'ltr' | 'rtl' = 'ltr'
             let isFirstNode = true
             astChildrenArray.forEach((astChild: any, index: number) => {
@@ -227,7 +279,6 @@ export namespace MarkdownStyle {
 
                 let childDir = getDeepASTDirection(astChild)
 
-                // If the node is neutral (like a softbreak), force it to adopt the current running direction
                 if (childDir === 'neutral') {
                     childDir = currentDir
                 }
@@ -241,7 +292,6 @@ export namespace MarkdownStyle {
                     currentRunAst.push(astChild)
                     currentRunRendered.push(renderedChild)
                 } else {
-                    // A genuine direction switch happened (LTR <-> RTL)
                     componentRuns.push({
                         direction: currentDir,
                         renderedChildren: currentRunRendered,
@@ -353,12 +403,9 @@ export namespace MarkdownStyle {
             () =>
                 StyleSheet.create({
                     double_quote: { color: color.quote },
-                    // The main container
                     body: {
                         textAlign: 'auto',
                     },
-
-                    // Headings
                     heading1: {
                         flexDirection: 'row',
                         fontSize: getModifiedFontSize(32),
@@ -395,15 +442,11 @@ export namespace MarkdownStyle {
                         color: color.text._100,
                         fontWeight: getModifiedFontWeight(500),
                     },
-
-                    // Horizontal Rule
                     hr: {
                         backgroundColor: color.primary._500,
                         height: 1,
                         marginTop: spacing.m,
                     },
-
-                    // Emphasis
                     strong: {
                         fontWeight: getModifiedFontWeight(700),
                         color: color.text._100,
@@ -416,8 +459,6 @@ export namespace MarkdownStyle {
                         textDecorationLine: 'line-through',
                         color: color.text._400,
                     },
-
-                    // Blockquotes
                     blockquote: {
                         backgroundColor: color.neutral._200,
                         borderColor: color.primary._500,
@@ -426,8 +467,6 @@ export namespace MarkdownStyle {
                         paddingHorizontal: spacing.sm,
                         color: color.text._400,
                     },
-
-                    // Lists
                     bullet_list: {
                         marginVertical: spacing.sm,
                     },
@@ -439,28 +478,22 @@ export namespace MarkdownStyle {
                         justifyContent: 'flex-start',
                         color: color.text._100,
                     },
-                    // @pseudo class, does not have a unique render rule
                     bullet_list_icon: {
                         color: color.text._400,
                         marginLeft: spacing.m,
                         marginRight: spacing.m,
                     },
-                    // @pseudo class, does not have a unique render rule
                     bullet_list_content: {
                         flex: 1,
                     },
-                    // @pseudo class, does not have a unique render rule
                     ordered_list_icon: {
                         color: color.text._400,
                         marginLeft: spacing.m,
                         marginRight: spacing.m,
                     },
-                    // @pseudo class, does not have a unique render rule
                     ordered_list_content: {
                         flex: 1,
                     },
-
-                    // Code
                     code_inline: {
                         backgroundColor: color.neutral._200,
                         paddingHorizontal: spacing.m,
@@ -511,7 +544,6 @@ export namespace MarkdownStyle {
                             },
                         }),
                     },
-
                     fenceHeader: {
                         color: color.text._300,
                         flexDirection: 'row',
@@ -524,8 +556,6 @@ export namespace MarkdownStyle {
                         borderTopRightRadius: borderRadius.m,
                         marginTop: spacing.sm,
                     },
-
-                    // Tables
                     table: {
                         borderWidth: 2,
                         borderColor: color.neutral._300,
@@ -553,8 +583,6 @@ export namespace MarkdownStyle {
                         flex: 1,
                         padding: 8,
                     },
-
-                    // Links
                     link: {
                         textDecorationLine: 'underline',
                     },
@@ -563,17 +591,12 @@ export namespace MarkdownStyle {
                         borderColor: '#000000',
                         borderBottomWidth: 1,
                     },
-
-                    // Images
                     image: {
                         flex: 1,
                         minWidth: 30,
                         minHeight: 30,
                     },
-
-                    // Text Output
                     text: {},
-
                     textgroup: {
                         fontWeight: getModifiedFontWeight(400),
                         color: color.text._100,
@@ -596,15 +619,12 @@ export namespace MarkdownStyle {
                         marginVertical: spacing.sm,
                         fontSize: getModifiedFontSize(14),
                     },
-
                     hardbreak: {
                         width: '100%',
                         height: 1,
                         color: color.text._100,
                     },
                     softbreak: {},
-
-                    // Believe these are never used but retained for completeness
                     pre: {},
                     inline: {},
                     span: {},
