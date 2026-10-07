@@ -1,29 +1,38 @@
-name: Build Workflow
+name: Build Android APK
 
 on:
-    push:
-        branches:
-            - master
-            - dev
-        paths-ignore:
-            - 'README.md'
-            - '.github/ISSUE_TEMPLATE/*'
+  workflow_dispatch: # Позволяет запускать сборку кнопкой
 
 jobs:
-    trigger-build:
-        runs-on: ubuntu-latest
-        steps:
-            - name: Connect Tailscale
-              uses: tailscale/github-action@v3
-              with:
-                  oauth-client-id: ${{secrets.TS_OAUTH_CLIENT_ID}}
-                  oauth-secret: ${{secrets.TS_OAUTH_SECRET}}
-                  tags: tag:chatterui-cd
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-            - name: Trigger Build
-              run: |
-                  if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
-                    curl -N -sS --max-time 1200 -X GET ${{ secrets.TS_BUILD_API }} || true
-                  elif [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
-                    curl -N -sS --max-time 1200 -X GET ${{ secrets.TS_BUILD_DEV_API }} || true
-                  fi
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Prebuild Android
+        run: npx expo prebuild --platform android
+
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew assembleRelease
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Twuelz-APK
+          path: android/app/build/outputs/apk/release/app-release.apk
