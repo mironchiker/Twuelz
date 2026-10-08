@@ -15,11 +15,12 @@ import { MarkdownIt } from 'react-native-markdown-display'
 import * as FileSystem from 'expo-file-system'
 import * as Sharing from 'expo-sharing'
 import JSZip from 'jszip'
-import ThemedButton from '@components/buttons/ThemedButton'
-import Accordion from '@components/views/Accordion'
-import { ChatStyle } from '@lib/state/ChatStyle'
 import { Logger } from '@lib/state/Logger'
 import { Theme } from '@lib/theme/ThemeManager'
+import { ChatStyle } from '@lib/state/ChatStyle'
+import * as ChatState from '@lib/state/Chat'
+import ThemedButton from '@components/buttons/ThemedButton'
+import Accordion from '@components/views/Accordion'
 import latexPlugin from './MarkdownLatexPlugin'
 import doubleQuotePlugin from './MarkdownQuotePlugin'
 import thinkPlugin from './MarkdownThinkPlugin'
@@ -89,7 +90,7 @@ const CodeHighlighter = ({ code }: { code: string }) => {
   return <Text>{elements}</Text>
 }
 
-// --- Интеллектуальный блок кода с оболочкой и сохранением ---
+// --- Интеллектуальный блок кода ---
 const EnhancedCodeFence = ({
   node,
   content,
@@ -100,44 +101,35 @@ const EnhancedCodeFence = ({
   const language = sourceInfo ? sourceInfo.trim().toLowerCase() : 'text'
   const { color, borderRadius } = Theme.useTheme()
 
+  // Подтягиваем статус генерации из стейта
+  const useChatHook = (ChatState as any).useChat || (ChatState as any).Chat?.useChat
+  const isGenerating = useChatHook?.((state: any) => state.generating || state.isGenerating) || false
+
   const getExtension = (lang: string): string => {
     switch (lang) {
       case 'python':
-      case 'py':
-        return 'py'
+      case 'py': return 'py'
       case 'javascript':
-      case 'js':
-        return 'js'
+      case 'js': return 'js'
       case 'typescript':
-      case 'ts':
-        return 'ts'
-      case 'html':
-        return 'html'
-      case 'css':
-        return 'css'
-      case 'java':
-        return 'java'
-      case 'dart':
-        return 'dart'
+      case 'ts': return 'ts'
+      case 'html': return 'html'
+      case 'css': return 'css'
+      case 'java': return 'java'
+      case 'dart': return 'dart'
       case 'c++':
-      case 'cpp':
-        return 'cpp'
-      case 'c':
-        return 'c'
+      case 'cpp': return 'cpp'
+      case 'c': return 'c'
       case 'bash':
-      case 'sh':
-        return 'sh'
-      case 'json':
-        return 'json'
+      case 'sh': return 'sh'
+      case 'json': return 'json'
       case 'yaml':
-      case 'yml':
-        return 'yml'
-      default:
-        return 'txt'
+      case 'yml': return 'yml'
+      default: return 'txt'
     }
   }
 
-  // Проверяем, вернул ли ИИ JSON-структуру с файлами и папками
+  // Проверяем, архив ли это
   let multiFileMap: Record<string, string> | null = null
   if (language === 'json') {
     try {
@@ -158,7 +150,16 @@ const EnhancedCodeFence = ({
   const fileName = isMultiFile ? 'project.zip' : `script.${ext}`
   const fileSizeKb = (content.length / 1024).toFixed(1)
 
+  // ЛОГИКА ОТОБРАЖЕНИЯ И БЛОКИРОВОК
+  const isDisabled = isGenerating // Блокируем кнопки, пока идет генерация
+  const hideCode = isMultiFile // Скрываем сам код ТОЛЬКО если это успешно собранный архив
+
   const handleDownload = async () => {
+    if (isDisabled) {
+      Logger.errorToast('Дождитесь окончания генерации')
+      return
+    }
+
     try {
       const isSharingAvailable = await Sharing.isAvailableAsync()
       if (!isSharingAvailable) {
@@ -167,12 +168,8 @@ const EnhancedCodeFence = ({
       }
 
       let baseDir = FileSystem.cacheDirectory || ''
-      if (!baseDir.startsWith('file://')) {
-        baseDir = `file://${baseDir}`
-      }
-      if (!baseDir.endsWith('/')) {
-        baseDir = `${baseDir}/`
-      }
+      if (!baseDir.startsWith('file://')) baseDir = `file://${baseDir}`
+      if (!baseDir.endsWith('/')) baseDir = `${baseDir}/`
 
       if (isMultiFile && multiFileMap) {
         Logger.infoToast('Сборка архива...')
@@ -228,75 +225,16 @@ const EnhancedCodeFence = ({
         backgroundColor: color?.neutral?._100 ?? '#18181f',
       }}
     >
-      {/* Шапка блока с кнопкой копирования */}
-      <View
-        style={[
-          styles.fenceHeader,
-          {
-            backgroundColor: color?.neutral?._200 ?? '#20202a',
-            borderTopLeftRadius: radius,
-            borderTopRightRadius: radius,
-            borderBottomWidth: 1,
-            borderBottomColor: borderColor,
-            marginTop: 0,
-          },
-        ]}
-      >
-        <Text style={{ color: styles.fenceHeader?.color, fontWeight: 'bold' }}>
-          {sourceInfo || 'Code'}
-        </Text>
-        {content && (
-          <ThemedButton
-            iconName="copy"
-            variant="tertiary"
-            iconStyle={{ color: styles.fenceHeader?.color }}
-            onPress={() => {
-              setStringAsync(content)
-                .then(() =>
-                  Logger.infoToast(
-                    t('chat.quickActions.toast.copied') || 'Код скопирован'
-                  )
-                )
-                .catch(() => Logger.errorToast('Ошибка копирования'))
-            }}
-          />
-        )}
-      </View>
-
-      {/* Код с подсветкой */}
-      <Text
-        style={[
-          inheritedStyles,
-          styles.fence,
-          {
-            marginVertical: 0,
-            borderWidth: 0,
-            borderRadius: 0,
-          },
-        ]}
-      >
-        <CodeHighlighter code={content} />
-      </Text>
-
-      {/* Линия-разделитель оболочки */}
-      <View
-        style={{
-          height: 1,
-          backgroundColor: borderColor,
-          width: '100%',
-        }}
-      />
-
-      {/* Нижняя оболочка-карточка со скруглённой кнопкой */}
+      {/* Шапка-карточка (всегда сверху) */}
       <View
         style={{
           flexDirection: 'row',
           alignItems: 'center',
           backgroundColor: color?.neutral?._200 ?? '#20202a',
           paddingHorizontal: 14,
-          paddingVertical: 10,
-          borderBottomLeftRadius: radius,
-          borderBottomRightRadius: radius,
+          paddingVertical: 12,
+          borderBottomWidth: hideCode ? 0 : 1, // Убираем полоску, если внизу нет кода
+          borderBottomColor: borderColor,
           gap: 12,
         }}
       >
@@ -306,7 +244,7 @@ const EnhancedCodeFence = ({
             style={{
               color: color?.text?._100 ?? '#ffffff',
               fontWeight: '700',
-              fontSize: 13,
+              fontSize: 14,
             }}
           >
             {fileName}
@@ -314,29 +252,80 @@ const EnhancedCodeFence = ({
           <Text
             style={{
               color: color?.text?._400 ?? '#8c8c9e',
-              fontSize: 11,
+              fontSize: 12,
               marginTop: 2,
             }}
           >
-            {isMultiFile ? 'Архив проекта' : `${language.toUpperCase()} • ${fileSizeKb} KB`}
+            {isGenerating
+              ? 'Генерация...'
+              : isMultiFile
+              ? `Архив структуры проекта • ${fileSizeKb} KB`
+              : `${language.toUpperCase()} • ${fileSizeKb} KB`}
           </Text>
         </View>
 
-        <View
-          style={{
-            borderRadius: radius,
-            overflow: 'hidden',
-            borderWidth: 1,
-            borderColor: borderColor,
-          }}
-        >
-          <ThemedButton
-            iconName="download"
-            variant="secondary"
-            onPress={handleDownload}
-          />
+        {/* Панель с кнопками */}
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          {/* Загрузка */}
+          <View
+            style={{
+              borderRadius: 8,
+              overflow: 'hidden',
+              borderWidth: 1,
+              borderColor: borderColor,
+              opacity: isDisabled ? 0.4 : 1, // Делаем полупрозрачной при генерации
+            }}
+          >
+            <ThemedButton
+              iconName="download"
+              variant="secondary"
+              disabled={isDisabled}
+              onPress={handleDownload}
+            />
+          </View>
+
+          {/* Копирование (прячем для архивов, чтобы не засорять буфер JSON-ом) */}
+          {!hideCode && content && (
+            <View
+              style={{
+                borderRadius: 8,
+                overflow: 'hidden',
+                borderWidth: 1,
+                borderColor: borderColor,
+                opacity: isDisabled ? 0.4 : 1,
+              }}
+            >
+              <ThemedButton
+                iconName="copy"
+                variant="secondary"
+                disabled={isDisabled}
+                onPress={() => {
+                  setStringAsync(content)
+                    .then(() => Logger.infoToast(t('chat.quickActions.toast.copied') || 'Код скопирован'))
+                    .catch(() => Logger.errorToast('Ошибка копирования'))
+                }}
+              />
+            </View>
+          )}
         </View>
       </View>
+
+      {/* Код с подсветкой (Рендерится только если это НЕ архив) */}
+      {!hideCode && (
+        <Text
+          style={[
+            inheritedStyles,
+            styles.fence,
+            {
+              marginVertical: 0,
+              borderWidth: 0,
+              borderRadius: 0,
+            },
+          ]}
+        >
+          <CodeHighlighter code={content} />
+        </Text>
+      )}
     </View>
   )
 }
@@ -766,7 +755,7 @@ export namespace MarkdownStyle {
             color: color.text._300,
             backgroundColor: color.neutral._100,
             borderColor: color.neutral._200,
-            borderWidth: 2,
+            borderWidth: 0,
             paddingLeft: spacing.l,
             paddingRight: spacing.l,
             paddingVertical: spacing.m,
@@ -782,18 +771,7 @@ export namespace MarkdownStyle {
               },
             }),
           },
-          fenceHeader: {
-            color: color.text._300,
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            paddingVertical: 4,
-            paddingHorizontal: 12,
-            backgroundColor: color.neutral._200,
-            borderTopLeftRadius: borderRadius.m,
-            borderTopRightRadius: borderRadius.m,
-            marginTop: spacing.sm,
-          },
+          fenceHeader: {},
           table: {
             borderWidth: 2,
             borderColor: color.neutral._300,
