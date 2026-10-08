@@ -1,13 +1,13 @@
 import { setStringAsync } from 'expo-clipboard'
-import * as FileSystem from 'expo-file-system'
-import * as Sharing from 'expo-sharing'
 import { Image } from 'expo-image'
 import { t } from 'i18next'
-import JSZip from 'jszip'
 import { RaTeXView } from 'ratex-react-native'
 import React, { ReactNode, useCallback, useMemo, useState } from 'react'
 import { Platform, StyleSheet, Text, useWindowDimensions, View, useColorScheme } from 'react-native'
 import { MarkdownIt } from 'react-native-markdown-display'
+import * as FileSystem from 'expo-file-system'
+import * as Sharing from 'expo-sharing'
+import JSZip from 'jszip'
 
 import ThemedButton from '@components/buttons/ThemedButton'
 import Accordion from '@components/views/Accordion'
@@ -19,7 +19,7 @@ import latexPlugin from './MarkdownLatexPlugin'
 import doubleQuotePlugin from './MarkdownQuotePlugin'
 import thinkPlugin from './MarkdownThinkPlugin'
 
-// --- ДОБАВЛЕНО: Встроенный хайлайтер кода, не требующий установки дополнительных библиотек ---
+// --- Встроенный хайлайтер кода, не требующий установки дополнительных библиотек ---
 const CodeHighlighter = ({ code }: { code: string }) => {
     const isDark = useColorScheme() === 'dark';
     
@@ -72,33 +72,53 @@ const CodeHighlighter = ({ code }: { code: string }) => {
 
     return <Text>{elements}</Text>;
 }
-// --- КОНЕЦ ДОБАВЛЕНИЯ ---
 
-// --- ДОБАВЛЕНО: Интеллектуальный блок кода с поддержкой ZIP-архивации ---
+// --- Интеллектуальный блок кода с поддержкой проектов и папок ---
 const EnhancedCodeFence = ({ node, content, sourceInfo, styles, inheritedStyles }: any) => {
-    const language = sourceInfo ? sourceInfo.trim() : 'text';
+    const language = sourceInfo ? sourceInfo.trim().toLowerCase() : 'text';
 
     const handleDownloadZip = async () => {
         try {
-            Logger.infoToast('Упаковка архива...');
+            Logger.infoToast('Сборка архива...');
             const zip = new JSZip();
+            let isMultiFile = false;
 
-            let ext = 'txt';
-            if (language === 'python') ext = 'py';
-            else if (language === 'javascript' || language === 'js') ext = 'js';
-            else if (language === 'java') ext = 'java';
-            else if (language === 'html') ext = 'html';
-            else if (language === 'dart') ext = 'dart';
-            else if (language === 'json') ext = 'json';
-            else if (language === 'cpp' || language === 'c++') ext = 'cpp';
-            else if (language === 'sh' || language === 'bash') ext = 'sh';
-            else if (language === 'ts' || language === 'typescript') ext = 'ts';
+            // Если ИИ выдал JSON, проверяем, нет ли там структуры файлов и папок
+            if (language === 'json') {
+                try {
+                    const parsed = JSON.parse(content);
+                    const keys = Object.keys(parsed);
+                    
+                    // Если ключи похожи на пути к файлам (например "src/main.js")
+                    if (keys.length > 0 && typeof parsed[keys[0]] === 'string') {
+                        keys.forEach(filePath => {
+                            zip.file(filePath, parsed[filePath]);
+                        });
+                        isMultiFile = true;
+                    }
+                } catch (e) {
+                    // Это просто обычный JSON, упакуем как один файл
+                }
+            }
 
-            const fileName = `source_${language}.${ext}`;
-            zip.file(fileName, content);
+            // Если это обычный кусок кода (один файл)
+            if (!isMultiFile) {
+                let ext = 'txt';
+                if (language === 'python') ext = 'py';
+                else if (language === 'javascript' || language === 'js') ext = 'js';
+                else if (language === 'java') ext = 'java';
+                else if (language === 'html') ext = 'html';
+                else if (language === 'dart') ext = 'dart';
+                else if (language === 'cpp' || language === 'c++') ext = 'cpp';
+                else if (language === 'sh' || language === 'bash') ext = 'sh';
+                else if (language === 'json') ext = 'json';
+
+                zip.file(`code_${language}.${ext}`, content);
+            }
 
             const base64Data = await zip.generateAsync({ type: 'base64' });
-            const fileUri = FileSystem.cacheDirectory + `${language}_code.zip`;
+            const fileName = isMultiFile ? 'Project_Archive.zip' : `${language}_code.zip`;
+            const fileUri = FileSystem.cacheDirectory + fileName;
 
             await FileSystem.writeAsStringAsync(fileUri, base64Data, {
                 encoding: FileSystem.EncodingType.Base64,
@@ -106,75 +126,57 @@ const EnhancedCodeFence = ({ node, content, sourceInfo, styles, inheritedStyles 
 
             await Sharing.shareAsync(fileUri, {
                 mimeType: 'application/zip',
-                dialogTitle: 'Сохранить исходный код',
+                dialogTitle: 'Сохранить ZIP-архив',
             });
         } catch (error) {
-            Logger.errorToast('Ошибка сохранения');
+            Logger.errorToast('Ошибка при создании архива');
         }
     };
 
     return (
-        <View key={node.key} style={{ marginBottom: styles.fence.marginBottom }}>
-            {/* Заголовок блока с кнопкой копирования */}
+        <View key={node.key} style={{ marginBottom: styles.fence?.marginBottom || 16 }}>
             <View style={[styles.fenceHeader, { borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }]}>
-                <Text style={{ color: styles.fenceHeader.color, fontWeight: 'bold' }}>
+                <Text style={{ color: styles.fenceHeader?.color }}>
                     {sourceInfo || 'Code'}
                 </Text>
                 {content && (
                     <ThemedButton
                         iconName="copy"
                         variant="tertiary"
-                        iconStyle={{ color: styles.fenceHeader.color }}
+                        iconStyle={{ color: styles.fenceHeader?.color }}
                         onPress={() => {
                             setStringAsync(content)
-                                .then(() => {
-                                    Logger.infoToast(t('chat.quickActions.toast.copiedCode'))
-                                })
-                                .catch(() => {
-                                    Logger.errorToast(t('chat.quickActions.toast.copyFailed'))
-                                })
+                                .then(() => Logger.infoToast(t('chat.quickActions.toast.copiedCode')))
+                                .catch(() => Logger.errorToast(t('chat.quickActions.toast.copyFailed')))
                         }}
                     />
                 )}
             </View>
             
-            {/* Блок с раскрашенным кодом */}
             <Text style={[inheritedStyles, styles.fence, { marginBottom: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderBottomWidth: 0 }]}>
                 <CodeHighlighter code={content} />
             </Text>
 
-            {/* Подвал-карточка для скачивания архива */}
             <View style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                backgroundColor: styles.fenceHeader.backgroundColor,
-                borderWidth: styles.fence.borderWidth,
-                borderColor: styles.fence.borderColor,
-                borderTopWidth: 0,
-                borderBottomLeftRadius: styles.fence.borderBottomLeftRadius,
-                borderBottomRightRadius: styles.fence.borderBottomRightRadius,
-                paddingHorizontal: 16,
-                paddingVertical: 10,
+                flexDirection: 'row', alignItems: 'center', backgroundColor: styles.fenceHeader?.backgroundColor,
+                borderWidth: styles.fence?.borderWidth, borderColor: styles.fence?.borderColor,
+                borderTopWidth: 0, borderBottomLeftRadius: styles.fence?.borderBottomLeftRadius || 8,
+                borderBottomRightRadius: styles.fence?.borderBottomRightRadius || 8,
+                paddingHorizontal: 16, paddingVertical: 10,
             }}>
                 <View style={{ flex: 1 }}>
-                    <Text style={{ color: styles.fenceHeader.color, fontWeight: 'bold', fontSize: 14 }}>
-                        {`${language}_code.zip`}
+                    <Text style={{ color: styles.fenceHeader?.color, fontWeight: 'bold', fontSize: 14 }}>
+                        {language === 'json' ? 'Auto-Archive.zip' : `${language}_code.zip`}
                     </Text>
-                    <Text style={{ color: styles.fenceHeader.color, opacity: 0.7, fontSize: 12, marginTop: 2 }}>
-                        ZIP Archive • {(content.length / 1024).toFixed(1)} KB
+                    <Text style={{ color: styles.fenceHeader?.color, opacity: 0.7, fontSize: 12, marginTop: 2 }}>
+                        {language === 'json' ? 'Project Package' : 'Source Code'} • {(content.length / 1024).toFixed(1)} KB
                     </Text>
                 </View>
-                <ThemedButton
-                    iconName="download"
-                    variant="tertiary"
-                    iconStyle={{ color: styles.fenceHeader.color }}
-                    onPress={handleDownloadZip}
-                />
+                <ThemedButton iconName="download" variant="tertiary" iconStyle={{ color: styles.fenceHeader?.color }} onPress={handleDownloadZip} />
             </View>
         </View>
     );
 };
-// --- КОНЕЦ ДОБАВЛЕНИЯ ---
 
 const getDeepASTDirection = (astNode: any): 'ltr' | 'rtl' | 'neutral' => {
     if (!astNode) return 'neutral'
