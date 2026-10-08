@@ -171,9 +171,9 @@ const EnhancedCodeFence = ({
         return
       }
 
-      let baseDir = FileSystem.cacheDirectory || ''
-      if (!baseDir.startsWith('file://')) baseDir = `file://${baseDir}`
-      if (!baseDir.endsWith('/')) baseDir = `${baseDir}/`
+      // Безопасное формирование пути
+      const dir = FileSystem.cacheDirectory || ''
+      const safeDir = dir + (dir.endsWith('/') ? '' : '/')
 
       if (isArchiveMode && multiFileMap) {
         Logger.infoToast('Сборка архива...')
@@ -184,28 +184,25 @@ const EnhancedCodeFence = ({
         })
 
         const base64Data = await zip.generateAsync({ type: 'base64' })
-        const zipUri = `${baseDir}project.zip`
+        const zipUri = `${safeDir}project.zip`
 
         await FileSystem.writeAsStringAsync(zipUri, base64Data, {
           encoding: FileSystem.EncodingType.Base64,
         })
 
         await Sharing.shareAsync(zipUri, {
-          mimeType: 'application/zip',
-          dialogTitle: 'Сохранить ZIP-архив проекта',
-          UTI: 'com.pkware.zip-archive',
+          dialogTitle: 'Сохранить ZIP-архив проекта'
         })
       } else {
         Logger.infoToast(`Подготовка ${fileName}...`)
-        const fileUri = `${baseDir}${fileName}`
+        const fileUri = `${safeDir}${fileName}`
 
         await FileSystem.writeAsStringAsync(fileUri, content, {
           encoding: FileSystem.EncodingType.UTF8,
         })
 
         await Sharing.shareAsync(fileUri, {
-          mimeType: 'text/plain',
-          dialogTitle: `Сохранить ${fileName}`,
+          dialogTitle: `Сохранить ${fileName}`
         })
       }
     } catch (err: any) {
@@ -229,90 +226,88 @@ const EnhancedCodeFence = ({
         backgroundColor: color?.neutral?._100 ?? '#18181f',
       }}
     >
-      {/* 1. ВЕРХНИЙ БЛОК: Имя файла и инфо */}
-      <View style={{ paddingHorizontal: 14, paddingVertical: 12 }}>
-        <Text
-          numberOfLines={1}
-          style={{ color: color?.text?._100 ?? '#ffffff', fontWeight: '700', fontSize: 14 }}
-        >
-          {fileName}
-        </Text>
-        <Text style={{ color: color?.text?._400 ?? '#8c8c9e', fontSize: 12, marginTop: 2 }}>
-          {isGenerating
-            ? 'Генерация...'
-            : isArchiveMode
-            ? `Архив проекта • ${fileSizeKb} KB`
-            : `${language.toUpperCase()} • ${fileSizeKb} KB`}
-        </Text>
-      </View>
-
-      {/* 2. ЛИНИЯ */}
-      <View style={{ height: 1, backgroundColor: borderColor, width: '100%' }} />
-
-      {/* 3. ПАНЕЛЬ КНОПОК */}
+      {/* 1. ШАПКА: Имя файла и Кнопки в одном ряду */}
       <View
         style={{
           flexDirection: 'row',
-          justifyContent: 'flex-end',
           alignItems: 'center',
           backgroundColor: color?.neutral?._200 ?? '#20202a',
-          paddingHorizontal: 10,
-          paddingVertical: 8,
-          gap: 8,
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+          borderBottomWidth: isArchiveMode && !isExplorerOpen ? 0 : 1, // Убираем полоску, если внизу нет кода
+          borderBottomColor: borderColor,
         }}
       >
-        {/* Кнопка "Структура папок" (Только для готовых архивов) */}
-        {isArchiveMode && isMultiFileReady && (
-          <View style={{ borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor }}>
-            <ThemedButton
-              iconName={isExplorerOpen ? "folder-open" : "folder"}
-              variant="secondary"
-              onPress={() => setIsExplorerOpen(!isExplorerOpen)}
-            />
-          </View>
-        )}
-
-        {/* Кнопка "Скачать" (Универсальная) */}
-        <View style={{ borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor, opacity: isDisabled ? 0.4 : 1 }}>
-          <ThemedButton
-            iconName="download"
-            variant="secondary"
-            disabled={isDisabled}
-            onPress={handleDownload}
-          />
-        </View>
-
-        {/* Кнопка "Копировать" (Скрыта для архивов, чтобы не засорять буфер JSON-ом) */}
-        {!isArchiveMode && content && (
-          <View style={{ borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor, opacity: isDisabled ? 0.4 : 1 }}>
-            <ThemedButton
-              iconName="copy"
-              variant="secondary"
-              disabled={isDisabled}
-              onPress={() => {
-                 setStringAsync(content)
-                  .then(() => Logger.infoToast(t('chat.quickActions.toast.copied') || 'Код скопирован'))
-                  .catch(() => Logger.errorToast('Ошибка'))
-              }}
-            />
-          </View>
-        )}
-      </View>
-
-      {/* 4. ОТОБРАЖЕНИЕ ОБЫЧНОГО КОДА */}
-      {!isArchiveMode && (
-        <View style={{ borderTopWidth: 1, borderColor }}>
-          <Text style={[inheritedStyles, styles.fence, { marginVertical: 0, borderWidth: 0, borderRadius: 0 }]}>
-            <CodeHighlighter code={content} />
+        <View style={{ flex: 1, paddingRight: 8 }}>
+          <Text
+            numberOfLines={1}
+            style={{ color: color?.text?._100 ?? '#ffffff', fontWeight: '700', fontSize: 14 }}
+          >
+            {fileName}
+          </Text>
+          <Text style={{ color: color?.text?._400 ?? '#8c8c9e', fontSize: 12, marginTop: 2 }}>
+            {isGenerating
+              ? 'Генерация...'
+              : isArchiveMode
+              ? `Архив проекта • ${fileSizeKb} KB`
+              : `${language.toUpperCase()} • ${fileSizeKb} KB`}
           </Text>
         </View>
+
+        {/* Кнопки выровнены справа */}
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          
+          {/* Кнопка папки (только для архивов) */}
+          {isArchiveMode && isMultiFileReady && (
+            <View style={{ borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor }}>
+              <ThemedButton
+                iconName={isExplorerOpen ? "folder-open" : "folder"}
+                variant="secondary"
+                onPress={() => setIsExplorerOpen(!isExplorerOpen)}
+              />
+            </View>
+          )}
+
+          {/* Кнопка скачивания */}
+          <View style={{ borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor, opacity: isDisabled ? 0.4 : 1 }}>
+            <ThemedButton
+              iconName="download"
+              variant="secondary"
+              disabled={isDisabled}
+              onPress={handleDownload}
+            />
+          </View>
+
+          {/* Кнопка копирования */}
+          {!isArchiveMode && content && (
+            <View style={{ borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor, opacity: isDisabled ? 0.4 : 1 }}>
+              <ThemedButton
+                iconName="copy"
+                variant="secondary"
+                disabled={isDisabled}
+                onPress={() => {
+                   setStringAsync(content)
+                    .then(() => Logger.infoToast(t('chat.quickActions.toast.copied') || 'Код скопирован'))
+                    .catch(() => Logger.errorToast('Ошибка'))
+                }}
+              />
+            </View>
+          )}
+        </View>
+      </View>
+
+      {/* 2. ОТОБРАЖЕНИЕ ОБЫЧНОГО КОДА */}
+      {!isArchiveMode && (
+        <Text style={[inheritedStyles, styles.fence, { marginVertical: 0, borderWidth: 0, borderRadius: 0 }]}>
+          <CodeHighlighter code={content} />
+        </Text>
       )}
 
-      {/* 5. ПРОСМОТРЩИК АРХИВОВ */}
+      {/* 3. ПРОСМОТРЩИК АРХИВОВ */}
       {isArchiveMode && isExplorerOpen && multiFileMap && (
-        <View style={{ borderTopWidth: 1, borderColor }}>
+        <View style={{ backgroundColor: color?.neutral?._100 }}>
           {/* Список файлов */}
-          <View style={{ padding: 8, backgroundColor: color?.neutral?._100 }}>
+          <View style={{ padding: 8 }}>
             {Object.keys(multiFileMap).map((filePath) => (
               <Pressable
                 key={filePath}
