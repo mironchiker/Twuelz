@@ -160,6 +160,20 @@ const EnhancedCodeFence = ({
 
   const handleDownload = async () => {
     try {
+      const isSharingAvailable = await Sharing.isAvailableAsync()
+      if (!isSharingAvailable) {
+        Logger.errorToast('Функция сохранения недоступна')
+        return
+      }
+
+      let baseDir = FileSystem.cacheDirectory || ''
+      if (!baseDir.startsWith('file://')) {
+        baseDir = `file://${baseDir}`
+      }
+      if (!baseDir.endsWith('/')) {
+        baseDir = `${baseDir}/`
+      }
+
       if (isMultiFile && multiFileMap) {
         Logger.infoToast('Сборка архива...')
         const zip = new JSZip()
@@ -169,7 +183,7 @@ const EnhancedCodeFence = ({
         })
 
         const base64Data = await zip.generateAsync({ type: 'base64' })
-        const zipUri = `${FileSystem.cacheDirectory}project.zip`
+        const zipUri = `${baseDir}project.zip`
 
         await FileSystem.writeAsStringAsync(zipUri, base64Data, {
           encoding: FileSystem.EncodingType.Base64,
@@ -178,21 +192,23 @@ const EnhancedCodeFence = ({
         await Sharing.shareAsync(zipUri, {
           mimeType: 'application/zip',
           dialogTitle: 'Сохранить ZIP-архив проекта',
+          UTI: 'com.pkware.zip-archive',
         })
       } else {
-        // Одиночный файл пишется напрямую как текст без сбоящего JSZip
-        Logger.infoToast(`Сохранение ${fileName}...`)
-        const fileUri = `${FileSystem.cacheDirectory}${fileName}`
+        Logger.infoToast(`Подготовка ${fileName}...`)
+        const fileUri = `${baseDir}${fileName}`
 
         await FileSystem.writeAsStringAsync(fileUri, content, {
           encoding: FileSystem.EncodingType.UTF8,
         })
 
         await Sharing.shareAsync(fileUri, {
+          mimeType: 'text/plain',
           dialogTitle: `Сохранить ${fileName}`,
         })
       }
-    } catch (err) {
+    } catch (err: any) {
+      Logger.error(err?.message || 'Error saving file')
       Logger.errorToast('Ошибка при сохранении файла')
     }
   }
