@@ -24,7 +24,7 @@ import latexPlugin from './MarkdownLatexPlugin'
 import doubleQuotePlugin from './MarkdownQuotePlugin'
 import thinkPlugin from './MarkdownThinkPlugin'
 
-// --- Встроенный хайлайтер кода ---
+// --- Встроенный подсветчик синтаксиса ---
 const CodeHighlighter = ({ code }: { code: string }) => {
   const isDark = useColorScheme() === 'dark'
 
@@ -89,7 +89,7 @@ const CodeHighlighter = ({ code }: { code: string }) => {
   return <Text>{elements}</Text>
 }
 
-// --- Блок кода с определением расширения и умным сохранением ---
+// --- Интеллектуальный блок кода с оболочкой и сохранением ---
 const EnhancedCodeFence = ({
   node,
   content,
@@ -137,7 +137,7 @@ const EnhancedCodeFence = ({
     }
   }
 
-  // Проверка: проект ли это с несколькими файлами в JSON-структуре вида { "path/file.py": "код" }
+  // Проверяем, вернул ли ИИ JSON-структуру с файлами и папками
   let multiFileMap: Record<string, string> | null = null
   if (language === 'json') {
     try {
@@ -180,6 +180,7 @@ const EnhancedCodeFence = ({
           dialogTitle: 'Сохранить ZIP-архив проекта',
         })
       } else {
+        // Одиночный файл пишется напрямую как текст без сбоящего JSZip
         Logger.infoToast(`Сохранение ${fileName}...`)
         const fileUri = `${FileSystem.cacheDirectory}${fileName}`
 
@@ -196,17 +197,32 @@ const EnhancedCodeFence = ({
     }
   }
 
+  const radius = borderRadius?.m ?? 10
+  const borderColor = color?.neutral?._300 ?? '#33333e'
+
   return (
-    <View key={node.key} style={{ marginBottom: styles.fence?.marginBottom || 12 }}>
-      {/* Шапка с кнопкой копирования */}
+    <View
+      key={node.key}
+      style={{
+        marginBottom: styles.fence?.marginBottom || 14,
+        borderRadius: radius,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: borderColor,
+        backgroundColor: color?.neutral?._100 ?? '#18181f',
+      }}
+    >
+      {/* Шапка блока с кнопкой копирования */}
       <View
         style={[
           styles.fenceHeader,
           {
-            borderTopLeftRadius: borderRadius?.m ?? 8,
-            borderTopRightRadius: borderRadius?.m ?? 8,
-            borderBottomLeftRadius: 0,
-            borderBottomRightRadius: 0,
+            backgroundColor: color?.neutral?._200 ?? '#20202a',
+            borderTopLeftRadius: radius,
+            borderTopRightRadius: radius,
+            borderBottomWidth: 1,
+            borderBottomColor: borderColor,
+            marginTop: 0,
           },
         ]}
       >
@@ -231,37 +247,41 @@ const EnhancedCodeFence = ({
         )}
       </View>
 
-      {/* Блок кода с подсветкой */}
+      {/* Код с подсветкой */}
       <Text
         style={[
           inheritedStyles,
           styles.fence,
           {
-            marginBottom: 0,
-            borderTopLeftRadius: 0,
-            borderTopRightRadius: 0,
-            borderBottomLeftRadius: 0,
-            borderBottomRightRadius: 0,
-            borderTopWidth: 0,
+            marginVertical: 0,
+            borderWidth: 0,
+            borderRadius: 0,
           },
         ]}
       >
         <CodeHighlighter code={content} />
       </Text>
 
-      {/* Закруглённая панель с кнопкой скачивания */}
+      {/* Линия-разделитель оболочки */}
+      <View
+        style={{
+          height: 1,
+          backgroundColor: borderColor,
+          width: '100%',
+        }}
+      />
+
+      {/* Нижняя оболочка-карточка со скруглённой кнопкой */}
       <View
         style={{
           flexDirection: 'row',
           alignItems: 'center',
-          backgroundColor: color?.neutral?._200 ?? '#1e1e24',
-          borderWidth: styles.fence?.borderWidth ?? 1,
-          borderColor: color?.neutral?._300 ?? '#33333d',
-          borderTopWidth: 0,
-          borderBottomLeftRadius: borderRadius?.m ?? 8,
-          borderBottomRightRadius: borderRadius?.m ?? 8,
-          paddingHorizontal: 12,
-          paddingVertical: 8,
+          backgroundColor: color?.neutral?._200 ?? '#20202a',
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+          borderBottomLeftRadius: radius,
+          borderBottomRightRadius: radius,
+          gap: 12,
         }}
       >
         <View style={{ flex: 1 }}>
@@ -269,7 +289,7 @@ const EnhancedCodeFence = ({
             numberOfLines={1}
             style={{
               color: color?.text?._100 ?? '#ffffff',
-              fontWeight: '600',
+              fontWeight: '700',
               fontSize: 13,
             }}
           >
@@ -277,20 +297,29 @@ const EnhancedCodeFence = ({
           </Text>
           <Text
             style={{
-              color: color?.text?._400 ?? '#888899',
+              color: color?.text?._400 ?? '#8c8c9e',
               fontSize: 11,
-              marginTop: 1,
+              marginTop: 2,
             }}
           >
             {isMultiFile ? 'Архив проекта' : `${language.toUpperCase()} • ${fileSizeKb} KB`}
           </Text>
         </View>
 
-        <ThemedButton
-          iconName="download"
-          variant="secondary"
-          onPress={handleDownload}
-        />
+        <View
+          style={{
+            borderRadius: radius,
+            overflow: 'hidden',
+            borderWidth: 1,
+            borderColor: borderColor,
+          }}
+        >
+          <ThemedButton
+            iconName="download"
+            variant="secondary"
+            onPress={handleDownload}
+          />
+        </View>
       </View>
     </View>
   )
